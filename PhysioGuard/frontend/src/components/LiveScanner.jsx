@@ -315,6 +315,10 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
 
   const authScorePercent = Math.round(telemetry.authenticity_score * 100);
   const isHuman = telemetry.is_human;
+  const isOccluded =
+    isScanning &&
+    (hudData?.face_detected === false ||
+      telemetry.verdict === 'SUBJECT OCCLUDED / NO FACE');
 
   return (
     <div className="space-y-6">
@@ -345,20 +349,45 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
               <div className="flex items-center gap-2">
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    isScanning ? 'bg-cyan-400 animate-ping' : 'bg-slate-600'
+                    !isScanning
+                      ? 'bg-slate-600'
+                      : isOccluded
+                      ? 'bg-terracotta-400 animate-pulse'
+                      : 'bg-cyan-400 animate-ping'
                   }`}
                 />
-                <span className="text-white font-semibold tracking-wider">
-                  {isScanning ? 'SENSOR ARRAY ACTIVE' : 'SCANNER STANDBY'}
+                <span
+                  className={`font-semibold tracking-wider ${
+                    isOccluded ? 'text-terracotta-400' : 'text-white'
+                  }`}
+                >
+                  {!isScanning
+                    ? 'SCANNER STANDBY'
+                    : isOccluded
+                    ? 'SUBJECT OCCLUDED (STANDBY)'
+                    : 'SENSOR ARRAY ACTIVE'}
                 </span>
               </div>
               <div className="text-slate-400">
-                LOCK: <span className="text-cyan-400 font-bold">{bufferProgress}%</span>
+                LOCK:{' '}
+                <span
+                  className={`font-bold ${
+                    isOccluded ? 'text-terracotta-400' : 'text-cyan-400'
+                  }`}
+                >
+                  {isOccluded ? '0%' : `${bufferProgress}%`}
+                </span>
               </div>
             </div>
 
             {/* Video + Canvas Viewport */}
-            <div className="relative mt-3 aspect-[4/3] rounded-xl overflow-hidden bg-obsidian-950 border border-white/5 flex items-center justify-center">
+            <div
+              className={`relative mt-3 aspect-[4/3] rounded-xl overflow-hidden bg-obsidian-950 flex items-center justify-center transition-all duration-300 ${
+                isOccluded
+                  ? 'border-2 border-terracotta-500 shadow-[0_0_25px_rgba(224,90,71,0.35)]'
+                  : 'border border-white/5'
+              }`}
+            >
               <video
                 ref={videoRef}
                 playsInline
@@ -372,6 +401,19 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
                 height={480}
                 className="absolute inset-0 w-full h-full pointer-events-none"
               />
+
+              {/* Unmissable Glassmorphic Occlusion Warning Overlay */}
+              {isOccluded && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-black/60 backdrop-blur-sm pointer-events-none z-20 transition-all duration-200">
+                  <div className="px-5 py-3 rounded-2xl bg-terracotta-950/95 border border-terracotta-500/70 shadow-2xl flex items-center gap-3 text-terracotta-300 font-heading font-bold text-sm tracking-wide animate-pulse">
+                    <ShieldAlert className="w-6 h-6 text-terracotta-400 shrink-0" />
+                    <span>⚠️ SUBJECT OCCLUDED — ALIGN FACE</span>
+                  </div>
+                  <p className="text-[11px] font-mono text-terracotta-200/80 mt-2 bg-black/60 px-3 py-1 rounded-lg">
+                    Inference halted &bull; Buffer purged &bull; Stale tensors cleared
+                  </p>
+                </div>
+              )}
 
               {/* Offline Placeholder */}
               {!isScanning && (
@@ -389,7 +431,7 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
               )}
 
               {/* Buffer Lock Ring Overlay when starting */}
-              {isScanning && bufferProgress < 100 && (
+              {isScanning && !isOccluded && bufferProgress < 100 && (
                 <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-cyan-500/30 text-[11px] font-mono text-cyan-300 flex items-center gap-2">
                   <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
                   <span>Calibrating Vascular Lock {bufferProgress}%</span>
@@ -458,7 +500,9 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
             {/* Card 1: Authenticity Score & Verdict */}
             <div
               className={`p-3.5 rounded-2xl transition-all duration-300 col-span-2 ${
-                telemetry.bvp_wave.length > 0
+                isOccluded
+                  ? 'glass-panel-terracotta'
+                  : telemetry.bvp_wave.length > 0
                   ? isHuman
                     ? 'glass-panel-cyan'
                     : 'glass-panel-terracotta'
@@ -469,7 +513,9 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
                 <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
                   Biological Authenticity
                 </span>
-                {isHuman ? (
+                {isOccluded ? (
+                  <ShieldAlert className="w-4 h-4 text-terracotta-400" />
+                ) : isHuman ? (
                   <ShieldCheck className="w-4 h-4 text-cyan-400" />
                 ) : (
                   <ShieldAlert className="w-4 h-4 text-terracotta-400" />
@@ -478,24 +524,30 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
               <div className="mt-2 flex items-baseline gap-3">
                 <span
                   className={`text-3xl font-mono font-bold tracking-tight ${
-                    isHuman ? 'text-cyan-400 text-glow-cyan' : 'text-terracotta-400 text-glow-terracotta'
+                    isOccluded
+                      ? 'text-terracotta-400'
+                      : isHuman
+                      ? 'text-cyan-400 text-glow-cyan'
+                      : 'text-terracotta-400 text-glow-terracotta'
                   }`}
                 >
-                  {authScorePercent}%
+                  {isOccluded ? '--' : `${authScorePercent}%`}
                 </span>
                 <span
                   className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold uppercase ${
-                    isHuman
+                    isOccluded
+                      ? 'bg-terracotta-500/20 text-terracotta-300 border border-terracotta-500/40'
+                      : isHuman
                       ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
                       : 'bg-terracotta-500/20 text-terracotta-300 border border-terracotta-500/40'
                   }`}
                 >
-                  {telemetry.verdict}
+                  {isOccluded ? 'SUBJECT OCCLUDED / NO FACE' : telemetry.verdict}
                 </span>
               </div>
               <div className="mt-2 text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                <span>Threshold: {currentThreshold.toFixed(4)}</span>
-                <span>Latency: {telemetry.latency_ms}ms</span>
+                <span>{isOccluded ? 'Face Detection: Required' : `Threshold: ${currentThreshold.toFixed(4)}`}</span>
+                <span>{isOccluded ? 'Inference Halted' : `Latency: ${telemetry.latency_ms}ms`}</span>
               </div>
             </div>
 
@@ -505,18 +557,18 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
                 <span className="text-[11px] font-mono uppercase">Heart Rate</span>
                 <Heart
                   className={`w-4 h-4 text-terracotta-400 ${
-                    telemetry.heart_rate_bpm > 40 ? 'animate-heartbeat' : ''
+                    !isOccluded && telemetry.heart_rate_bpm > 40 ? 'animate-heartbeat' : 'opacity-40'
                   }`}
                 />
               </div>
               <div className="mt-2 flex items-baseline gap-1">
                 <span className="text-2xl font-mono font-bold text-white">
-                  {telemetry.heart_rate_bpm > 0 ? telemetry.heart_rate_bpm.toFixed(1) : '--'}
+                  {!isOccluded && telemetry.heart_rate_bpm > 0 ? telemetry.heart_rate_bpm.toFixed(1) : '--'}
                 </span>
                 <span className="text-xs font-mono text-slate-400">BPM</span>
               </div>
               <div className="mt-2 text-[10px] text-slate-400 font-mono">
-                SQI: <span className="text-cyan-400">{telemetry.sqi_percent}%</span>
+                SQI: <span className="text-cyan-400">{isOccluded ? '--' : `${telemetry.sqi_percent}%`}</span>
               </div>
             </div>
 
@@ -527,7 +579,9 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
                 <Activity className="w-4 h-4 text-cyan-400" />
               </div>
               <div className="mt-2 flex items-baseline gap-1">
-                {telemetry.hrv_status === 'Low SNR — Face Light' ? (
+                {isOccluded ? (
+                  <span className="text-2xl font-mono font-bold text-white">--</span>
+                ) : telemetry.hrv_status === 'Low SNR — Face Light' ? (
                   <span className="text-xs font-mono font-semibold text-amber-400 leading-tight">
                     Low SNR — Face Light
                   </span>
@@ -543,7 +597,9 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
                 )}
               </div>
               <div className="mt-2 text-[10px] text-slate-400 font-mono">
-                {telemetry.hrv_status === 'Low SNR — Face Light' ? (
+                {isOccluded ? (
+                  <span className="text-slate-500">No Face Detected</span>
+                ) : telemetry.hrv_status === 'Low SNR — Face Light' ? (
                   <span className="text-amber-500/80">SNR &le; -0.5 dB</span>
                 ) : (
                   <>Stress: <span className="text-slate-300">{telemetry.stress_index || '--'}</span></>
@@ -553,7 +609,7 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
           </div>
 
           {/* Low SQI Environmental Advisory Banner */}
-          {isScanning && bufferProgress > 20 && telemetry.sqi_percent < 25.0 && (
+          {isScanning && !isOccluded && bufferProgress > 20 && telemetry.sqi_percent < 25.0 && (
             <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 backdrop-blur-md text-amber-300 text-xs font-mono flex items-center gap-3 shadow-lg">
               <Sparkles className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
               <div className="leading-relaxed">
@@ -569,7 +625,7 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
               <div>
                 <p className="text-[10px] font-mono text-slate-400 uppercase">Vascular Coherence</p>
                 <p className="text-base font-mono font-bold text-cyan-400 mt-0.5">
-                  {telemetry.vascular_coherence_percent > 0
+                  {!isOccluded && telemetry.vascular_coherence_percent > 0
                     ? `${telemetry.vascular_coherence_percent}%`
                     : '--'}
                 </p>
@@ -581,7 +637,7 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
               <div>
                 <p className="text-[10px] font-mono text-slate-400 uppercase">Cardiac SNR</p>
                 <p className="text-base font-mono font-bold text-white mt-0.5">
-                  {telemetry.snr_db !== 0 ? `${telemetry.snr_db} dB` : '--'}
+                  {!isOccluded && telemetry.snr_db !== 0 ? `${telemetry.snr_db} dB` : '--'}
                 </p>
               </div>
               <BarChart2 className="w-4 h-4 text-slate-500" />
@@ -601,7 +657,7 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
               <div>
                 <p className="text-[10px] font-mono text-slate-400 uppercase">ONNX Latency</p>
                 <p className="text-base font-mono font-bold text-slate-300 mt-0.5">
-                  {telemetry.latency_ms > 0 ? `${telemetry.latency_ms} ms` : '--'}
+                  {!isOccluded && telemetry.latency_ms > 0 ? `${telemetry.latency_ms} ms` : '--'}
                 </p>
               </div>
               <Clock className="w-4 h-4 text-slate-500" />
@@ -621,7 +677,16 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
                 </div>
                 <span className="text-[10px] font-mono text-slate-400">128-SAMPLE BUFFER @ 30 FPS</span>
               </div>
-              <BvpOscilloscope wave={telemetry.bvp_wave} height={130} isLive={isScanning} />
+              <BvpOscilloscope
+                wave={isOccluded ? [] : telemetry.bvp_wave}
+                height={130}
+                isLive={isScanning && !isOccluded}
+                emptyMessage={
+                  isOccluded
+                    ? '⚠️ SUBJECT OCCLUDED — ALIGN FACE IN CAMERA'
+                    : 'CALIBRATING VASCULAR TRACE (RING BUFFER LOCKING)...'
+                }
+              />
             </div>
 
             {/* Welch FFT Power Spectral Density */}
@@ -634,13 +699,13 @@ export default function LiveScanner({ currentThreshold, onSnapshot }) {
                   </span>
                 </div>
                 <span className="text-[10px] font-mono text-slate-400">
-                  PEAK: {telemetry.heart_rate_bpm ? `${telemetry.heart_rate_bpm} BPM` : 'STANDBY'}
+                  PEAK: {!isOccluded && telemetry.heart_rate_bpm ? `${telemetry.heart_rate_bpm} BPM` : 'STANDBY'}
                 </span>
               </div>
               <PsdSpectrum
-                freqs={telemetry.psd_freqs_bpm}
-                powers={telemetry.psd_powers}
-                peakBpm={telemetry.heart_rate_bpm}
+                freqs={isOccluded ? [] : telemetry.psd_freqs_bpm}
+                powers={isOccluded ? [] : telemetry.psd_powers}
+                peakBpm={isOccluded ? null : telemetry.heart_rate_bpm}
                 height={120}
               />
             </div>

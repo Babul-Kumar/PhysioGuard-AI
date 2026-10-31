@@ -144,20 +144,57 @@ def test_6_api_analyze_video_endpoint():
             os.remove(temp_path)
 
 
-def test_7_websocket_live_telemetry():
-    """Test WS /ws/live-telemetry receiving frames and returning HUD."""
+def test_7_websocket_live_telemetry_occlusion():
+    """Test WS /ws/live-telemetry when camera is occluded or pointed at empty space: flushes buffer & zeroes biometrics."""
     img = np.zeros((120, 160, 3), dtype=np.uint8)
-    cv2.circle(img, (80, 60), 35, (150, 170, 220), -1)
     _, enc = cv2.imencode(".jpg", img)
     b64_frame = base64.b64encode(enc.tobytes()).decode("utf-8")
 
     with client.websocket_connect("/ws/live-telemetry") as ws:
         ws.send_json({"frame": f"data:image/jpeg;base64,{b64_frame}", "timestamp_ms": 1000.0})
-        data = ws.receive_json()
-        assert data["type"] == "hud"
-        assert "hud" in data
-        assert data["hud"]["buffer_fill"] == 1
-        assert len(data["hud"]["rois"]) == 4
+        hud_data = ws.receive_json()
+        assert hud_data["type"] == "hud"
+        assert hud_data["hud"]["face_detected"] is False
+        assert hud_data["hud"]["buffer_fill"] == 0
+        assert len(hud_data["hud"]["rois"]) == 0
+
+        # Occluded zeroed telemetry message
+        telem_data = ws.receive_json()
+        assert telem_data["type"] == "telemetry"
+        assert telem_data["verdict"] == "SUBJECT OCCLUDED / NO FACE"
+        assert telem_data["authenticity_score"] == 0.0
+        assert telem_data["heart_rate_bpm"] == 0.0
+        assert telem_data["bvp_wave"] == []
+
+
+def test_7b_websocket_live_telemetry_face_presence(monkeypatch):
+    """Test WS /ws/live-telemetry when a face is detected: populates buffer and returns 4 ROIs."""
+    from unittest.mock import MagicMock
+    from PhysioGuard.backend.main import get_face_processor
+
+    fp = get_face_processor()
+
+    class MockLandmark:
+        def __init__(self, x=0.5, y=0.5, z=0.0):
+            self.x = x
+            self.y = y
+            self.z = z
+
+    mock_result = MagicMock()
+    mock_result.face_landmarks = [[MockLandmark() for _ in range(468)]]
+    monkeypatch.setattr(fp.detector, "detect", lambda *args, **kwargs: mock_result)
+
+    img = np.full((120, 160, 3), 128, dtype=np.uint8)
+    _, enc = cv2.imencode(".jpg", img)
+    b64_frame = base64.b64encode(enc.tobytes()).decode("utf-8")
+
+    with client.websocket_connect("/ws/live-telemetry") as ws:
+        ws.send_json({"frame": f"data:image/jpeg;base64,{b64_frame}", "timestamp_ms": 1000.0})
+        hud_data = ws.receive_json()
+        assert hud_data["type"] == "hud"
+        assert hud_data["hud"]["face_detected"] is True
+        assert hud_data["hud"]["buffer_fill"] == 1
+        assert len(hud_data["hud"]["rois"]) == 4
 
 
 def test_8_dynamic_fps_resampling():

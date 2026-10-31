@@ -102,25 +102,23 @@ class FaceProcessor:
         face_detected = len(detection_result.face_landmarks) > 0
         hud_rois: List[ROIBox] = []
 
-        if face_detected:
-            lms = detection_result.face_landmarks[0]
-            # 2px padding prevents eyeglasses from entering skin patches
-            box_fh = self._get_bbox(lms, FOREHEAD_LMS, w, h, pad=2)
-            box_lm = self._get_bbox(lms, LEFT_MALAR_LMS, w, h, pad=2)
-            box_rm = self._get_bbox(lms, RIGHT_MALAR_LMS, w, h, pad=2)
-            self.last_valid_rois = {
-                "forehead": box_fh,
-                "left_malar": box_lm,
-                "right_malar": box_rm,
-            }
-        elif self.last_valid_rois is not None:
-            box_fh = self.last_valid_rois["forehead"]
-            box_lm = self.last_valid_rois["left_malar"]
-            box_rm = self.last_valid_rois["right_malar"]
-        else:
-            box_fh = (int(w * 0.35), int(h * 0.18), int(w * 0.65), int(h * 0.30))
-            box_lm = (int(w * 0.25), int(h * 0.50), int(w * 0.45), int(h * 0.68))
-            box_rm = (int(w * 0.55), int(h * 0.50), int(w * 0.75), int(h * 0.68))
+        if not face_detected:
+            # Strict occlusion gate: reset any cached ROIs and immediately return empty structures
+            self.last_valid_rois = None
+            stacked = np.zeros((72, 72, 3), dtype=np.float32)
+            skin_rgbs = np.zeros((3, 3), dtype=np.float32)
+            return False, stacked, skin_rgbs, bg_rgb, []
+
+        lms = detection_result.face_landmarks[0]
+        # 2px padding prevents eyeglasses from entering skin patches
+        box_fh = self._get_bbox(lms, FOREHEAD_LMS, w, h, pad=2)
+        box_lm = self._get_bbox(lms, LEFT_MALAR_LMS, w, h, pad=2)
+        box_rm = self._get_bbox(lms, RIGHT_MALAR_LMS, w, h, pad=2)
+        self.last_valid_rois = {
+            "forehead": box_fh,
+            "left_malar": box_lm,
+            "right_malar": box_rm,
+        }
 
         def crop_and_resize(box):
             x1, y1, x2, y2 = box

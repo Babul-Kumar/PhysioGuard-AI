@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-export default function BvpOscilloscope({ wave = [], height = 140, isLive = true }) {
+export default function BvpOscilloscope({ wave = [], height = 140, isLive = true, emptyMessage = null }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -111,13 +111,15 @@ export default function BvpOscilloscope({ wave = [], height = 140, isLive = true
         ctx.fill();
       }
     } else {
-      // Waiting for buffer trace
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.font = '12px "JetBrains Mono", monospace';
+      // Waiting for buffer trace or occluded
+      ctx.fillStyle = emptyMessage && emptyMessage.includes('OCCLUDED')
+        ? 'rgba(224, 90, 71, 0.8)'
+        : 'rgba(255, 255, 255, 0.2)';
+      ctx.font = 'bold 12px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('CALIBRATING VASCULAR TRACE (RING BUFFER LOCKING)...', w / 2, h / 2 + 4);
+      ctx.fillText(emptyMessage || 'CALIBRATING VASCULAR TRACE (RING BUFFER LOCKING)...', w / 2, h / 2 + 4);
     }
-  }, [wave, height, isLive]);
+  }, [wave, height, isLive, emptyMessage]);
 
   return (
     <div className="w-full relative rounded-lg overflow-hidden border border-white/5 bg-[#080B11]">

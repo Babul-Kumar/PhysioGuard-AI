@@ -193,18 +193,57 @@ async def analyze_video(
         stacked_frames = []
         regional_skin = []
         bg_rgbs = []
+        valid_face_frames = 0
+        total_read_frames = 0
 
         while True:
             ret, frame_bgr = cap.read()
             if not ret:
                 break
+            total_read_frames += 1
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            _, stacked, skin_rgb, bg_rgb, _ = processor.process_frame(frame_rgb)
+            face_detected, stacked, skin_rgb, bg_rgb, _ = processor.process_frame(frame_rgb)
+            if face_detected:
+                valid_face_frames += 1
             stacked_frames.append(stacked)
             regional_skin.append(skin_rgb)
             bg_rgbs.append(bg_rgb)
 
         cap.release()
+
+        # Strict Face-Presence Gate: if face detected in < 50% of frames, short-circuit
+        detect_ratio = valid_face_frames / max(1, total_read_frames)
+        if detect_ratio < 0.50:
+            logger.info("Video short-circuited: detect_ratio=%.2f < 0.50 (no valid subject)", detect_ratio)
+            return ForensicReport(
+                video_name=file.filename or "uploaded_video.mp4",
+                duration_sec=duration_sec,
+                total_frames=total_frames,
+                overall_authenticity_score=0.0,
+                final_verdict="SUBJECT OCCLUDED / NO FACE",
+                mean_heart_rate_bpm=0.0,
+                mean_hrv_rmssd_ms=0.0,
+                mean_vascular_coherence_percent=0.0,
+                mean_sqi_percent=0.0,
+                timeline=[
+                    TimelineSegment(
+                        timestamp_sec=0.0,
+                        frame_idx=0,
+                        authenticity_score=0.0,
+                        is_human=False,
+                        heart_rate_bpm=0.0,
+                        sqi_percent=0.0,
+                        vascular_coherence_percent=0.0,
+                    )
+                ],
+                bvp_sample=[],
+                psd_freqs_bpm=[],
+                psd_powers=[],
+                regional_forehead_sample=[],
+                regional_left_malar_sample=[],
+                regional_right_malar_sample=[],
+                generated_at=datetime.now(timezone.utc).isoformat(),
+            )
 
         if len(stacked_frames) < 32:
             raise HTTPException(
@@ -401,7 +440,51 @@ async def websocket_live_telemetry(websocket: WebSocket):
                 frame_rgb
             )
 
-            # Append to buffer
+            if not face_detected:
+                # Strict Face-Presence Gate: immediately flush buffers & short-circuit inference
+                ring_stacked.clear()
+                ring_skin.clear()
+                ring_bg.clear()
+                ring_timestamps.clear()
+                frame_count = 0
+                processor.last_valid_rois = None
+
+                # Send occluded HUD update
+                hud_payload = LiveTelemetryPayload(
+                    type="hud",
+                    hud=FrameHUD(
+                        face_detected=False,
+                        buffer_fill=0,
+                        buffer_total=128,
+                        rois=[],
+                    ),
+                )
+                await websocket.send_text(hud_payload.model_dump_json())
+
+                # Force-zero the telemetry response
+                occluded_telemetry = LiveTelemetryPayload(
+                    type="telemetry",
+                    authenticity_score=0.0,
+                    verdict="SUBJECT OCCLUDED / NO FACE",
+                    is_human=False,
+                    heart_rate_bpm=0.0,
+                    hrv_rmssd_ms=0.0,
+                    hrv_status="No Face Detected",
+                    stress_index=0.0,
+                    sqi_percent=0.0,
+                    snr_db=0.0,
+                    vascular_coherence_percent=0.0,
+                    effective_fps=30.0,
+                    latency_ms=0.0,
+                    bvp_wave=[],
+                    psd_freqs_bpm=[],
+                    psd_powers=[],
+                    regional_pos=None,
+                )
+                await websocket.send_text(occluded_telemetry.model_dump_json())
+                continue
+
+            # Face detected: append to buffer
             ring_stacked.append(stacked_crop)
             ring_skin.append(skin_rgb)
             ring_bg.append(bg_rgb)
