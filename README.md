@@ -9,10 +9,10 @@
 ### 1. Multi-Region Spatial-Temporal Volume (`st_vol`)
 - **Landmark Extraction:** Detects 468 facial landmarks per frame via MediaPipe (`mediapipe.tasks.python.vision.FaceLandmarker`).
 - **Vascular ROIs:**
-  - **Forehead (Glabella):** Indices `[10, 67, 109, 338, 297, 151, 9, 107, 336]`
-  - **Left Malar (Left Cheek):** Indices `[116, 117, 118, 119, 100, 126, 209, 49]`
-  - **Right Malar (Right Cheek):** Indices `[345, 346, 347, 348, 329, 355, 429, 279]`
-- Crops are padded by 5px, resized to `(width=72, height=24)`, and stacked vertically into a `(72, 72, 3)` patch per frame.
+  - **Forehead (Glabella):** Indices `[10, 67, 109, 338, 297, 151]` (tightened upward for eyeglass safety)
+  - **Left Malar (Left Cheek):** Indices `[117, 118, 101, 50, 205]`
+  - **Right Malar (Right Cheek):** Indices `[346, 347, 330, 280, 425]`
+- Crops are padded by 2px, resized to `(width=72, height=24)`, and stacked vertically into a `(72, 72, 3)` patch per frame.
 - Over a 128-frame sliding window (4.27s @ 30 FPS):
   - **Temporal Difference Branch (`diff`):**
     $$\text{diff}_{t} = \frac{I_{t+1} - I_{t}}{I_{t+1} + I_{t} + 10^{-5}}$$
@@ -26,14 +26,15 @@
   $$C_n = \frac{C_{\text{skin}}}{\mu_{\text{skin}}} - 0.25 \left(\frac{C_{\text{bg}}}{\mu_{\text{bg}}} - 1.0\right)$$
   $$S_1 = C_{n, G} - C_{n, B}, \quad S_2 = C_{n, G} + C_{n, B} - 2 C_{n, R}$$
   $$H = S_1 + \frac{\sigma(S_1)}{\sigma(S_2)} S_2$$
-- Detrended and bandpassed with a 3rd-order zero-phase Butterworth filter $[0.72, 3.2]\,\text{Hz}$ ($43.2 - 192\,\text{BPM}$).
+- Saturated/blown-out ceiling lights (`mean > 240`) and spinning ceiling fan variance (`var > 150`) automatically bypass ambient subtraction to prevent noise injection.
+- Detrended and bandpassed with a 3rd-order zero-phase Butterworth filter $[0.80, 3.0]\,\text{Hz}$ ($48 - 180\,\text{BPM}$).
 - Stacked into `(1, 3, 128)` tensor input.
 
 ### 3. Dual Multi-Task Inference & DSP Post-Processing
 - **`pred_bvp` $(1, 128)$:** Filtered Blood Volume Pulse (BVP) waveform.
-  - **Heart Rate (BPM):** Welch PSD peak frequency in $[0.72, 3.2]\,\text{Hz}$.
+  - **Heart Rate (BPM):** Welch PSD peak frequency in $[0.80, 3.0]\,\text{Hz}$.
   - **Signal Quality Index (SQI & SNR dB):** Power ratio of fundamental + 1st harmonic vs noise floor.
-  - **Heart Rate Variability (HRV):** Peak detection $\rightarrow$ Inter-Beat Intervals (IBI) $\rightarrow$ RMSSD (ms) & Baevsky Stress Index.
+  - **Heart Rate Variability (HRV):** SQI-gated (active when SNR $> -0.5\,\text{dB}$) $\rightarrow$ Inter-Beat Intervals (IBI) $\rightarrow$ RMSSD (ms) & Baevsky Stress Index.
   - **Vascular Phase Coherence (%):** Mean pairwise cosine similarity of normalized FFT spectral vectors across Forehead, Left Malar, and Right Malar.
 - **`live_logits` $(1, 1)$:** Sigmoid liveness probability evaluated against the trained optimal Youden threshold ($0.6258$).
 
@@ -122,15 +123,6 @@ To run the full end-to-end verification test suite:
 .\.venv\Scripts\python.exe -m pytest PhysioGuard/backend/tests/test_pipeline.py -v -s
 ```
 
-### Test Suite Coverage:
-1. `test_1_onnx_model_loading_and_shapes`: Validates ONNX graph input/output contracts.
-2. `test_2_welch_bpm_recovery_78bpm`: Asserts Welch PSD recovers synthetic $78\,\text{BPM}$ ($1.30\,\text{Hz}$) sinusoid within $\pm3.0\,\text{BPM}$.
-3. `test_3_api_health_endpoint`: Tests `GET /api/health` status, ONNX latency, and optimal threshold.
-4. `test_4_api_benchmarks_endpoint`: Tests `GET /api/benchmarks` for $89.88\%$ AUROC, $7.37\,\text{BPM}$ MAE, and the 542-video cleaning audit.
-5. `test_5_api_flash_challenge`: Tests `POST /api/verify-flash-challenge` for active 3D presence replay rejection.
-6. `test_6_api_analyze_video_endpoint`: Tests `POST /api/analyze-video` using an automated synthetic OpenCV video clip.
-7. `test_7_websocket_live_telemetry`: Tests WebSocket `/ws/live-telemetry` frame transmission and HUD polygon coordinate returns.
-
 ---
 
 ## Verified Model Benchmarks
@@ -143,5 +135,3 @@ To run the full end-to-end verification test suite:
 | **Raw Videos Scanned** | **542** | Full dataset screening |
 | **Accepted Clean Videos** | **521 (96.1%)**| Filtered for face tracking stability & quality |
 | **Total Clean Clips** | **1,188** | 128-frame clips used for training & evaluation |
-#   P h y s i o G u a r d - A I  
- 

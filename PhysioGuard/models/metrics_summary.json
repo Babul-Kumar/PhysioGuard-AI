@@ -1,0 +1,14 @@
+{
+  "optimal_liveness_threshold": 0.6258,
+  "test_auroc_percent": 89.88,
+  "test_hr_mae_bpm": 7.37,
+  "cleaning_audit": {
+    "total_videos_scanned": 542,
+    "dropped_corrupt_or_short": 9,
+    "dropped_low_face_tracking": 12,
+    "dropped_corrupt_oximeter_gt": 0,
+    "dropped_out_of_range_bpm": 0,
+    "accepted_clean_videos": 521,
+    "total_clean_clips_saved": 1188
+  }
+}

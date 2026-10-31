@@ -1,0 +1,15 @@
+.venv/
+data/
+__results___files/
+*.zip
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+dist/
+build/
+.DS_Store
+*.log
+
